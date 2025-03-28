@@ -5,66 +5,58 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from datos_ciudades import generar_ciudades, guardar_ciudades, cargar_ciudades
 from evaluacion_rutas import distancia, calcular_distancia_total
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 
-def busqueda_cuervos(n_ciudades, iteraciones=1000, memoria_max=10, coef_aprendizaje=0.1):
+def busqueda_cuervos(n_ciudades, root_output_dir, iteraciones=1000):
     """
     Implementa la Búsqueda de Cuervos para resolver el problema del Agente Viajero (TSP).
     """
-
-    # Crear carpeta de resultados con timestamp
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_dir = f"resultados/{n_ciudades}_ciudades-{timestamp}"
+    output_dir = f"{root_output_dir}/{n_ciudades}_ciudades"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Generamos un conjunto de ciudades aleatorias y lo guardamos en un archivo
     ciudades = generar_ciudades(n_ciudades)
     guardar_ciudades(ciudades, f"{output_dir}/ciudades_{n_ciudades}.txt")
     
-    # Inicializamos la población de cuervos con rutas aleatorias
     cuervos = [random.sample(range(n_ciudades), n_ciudades) for _ in range(10)]
-    memoria = cuervos.copy()  # Cada cuervo recuerda su mejor solución
-    mejores_distancias = []  # Lista para almacenar la mejor distancia en cada iteración
+    mejores_distancias = []
     
-    # Iniciamos el proceso iterativo de búsqueda
     for _ in range(iteraciones):
         for i in range(len(cuervos)):
-            referencia = random.choice(memoria)  # Escogemos una ruta de referencia en la memoria
-            nueva_ruta = cuervos[i][:]  # Creamos una copia de la ruta actual
-            
-            # Intercambiamos dos ciudades de la ruta para generar una nueva solución
+            nueva_ruta = cuervos[i][:]
             idx1, idx2 = random.sample(range(n_ciudades), 2)
             nueva_ruta[idx1], nueva_ruta[idx2] = nueva_ruta[idx2], nueva_ruta[idx1]
             
-            # Si la nueva ruta es mejor, actualizamos el cuervo y su memoria
             if calcular_distancia_total(nueva_ruta, ciudades) < calcular_distancia_total(cuervos[i], ciudades):
                 cuervos[i] = nueva_ruta
-                memoria[i] = nueva_ruta
         
-        # Guardamos la mejor distancia encontrada en esta iteración
         mejores_distancias.append(min(calcular_distancia_total(c, ciudades) for c in cuervos))
     
-    # Seleccionamos la mejor ruta después de todas las iteraciones
-    mejor_ruta = min(cuervos, key=lambda c: calcular_distancia_total(c, ciudades))
-
-    # Guardamos la gráfica de evolución de la búsqueda
     grafico_path = f"{output_dir}/grafico_{n_ciudades}.png"
-    plt.plot(mejores_distancias)
+    plt.figure()
+    plt.plot(mejores_distancias, label='Distancia mínima')
     plt.xlabel("Iteraciones")
     plt.ylabel("Distancia mínima encontrada")
     plt.title(f"Evolución de la solución TSP con {n_ciudades} ciudades")
-    plt.savefig(grafico_path)  
+    plt.legend()
+    plt.grid()
+    plt.savefig(grafico_path)
     plt.close()
     
-    # Graficar el mapa de ciudades con la mejor ruta
     grafo_path = f"{output_dir}/grafo_{n_ciudades}.png"
+    mejor_ruta = min(cuervos, key=lambda c: calcular_distancia_total(c, ciudades))
     graficar_grafo(ciudades, mejor_ruta, grafo_path)
-
-    # Generamos el reporte
-    generar_reporte(n_ciudades, mejores_distancias, mejor_ruta, grafico_path, grafo_path, output_dir)
-
-    return mejor_ruta, ciudades
+    
+    hist_path = f"{output_dir}/histograma_{n_ciudades}.png"
+    plt.figure()
+    plt.hist([calcular_distancia_total(c, ciudades) for c in cuervos], bins=10, alpha=0.7, color='blue', edgecolor='black')
+    plt.xlabel("Distancia total")
+    plt.ylabel("Frecuencia")
+    plt.title(f"Distribución de distancias - {n_ciudades} ciudades")
+    plt.savefig(hist_path)
+    plt.close()
+    
+    generar_reporte_md(n_ciudades, mejores_distancias, mejor_ruta, grafico_path, grafo_path, hist_path, output_dir)
+    
+    return mejor_ruta, mejores_distancias
 
 def graficar_grafo(ciudades, ruta, filename):
     """Genera un gráfico del mapa de ciudades y su mejor ruta encontrada."""
@@ -74,38 +66,60 @@ def graficar_grafo(ciudades, ruta, filename):
         ciudad_siguiente = ciudades[ruta[(i + 1) % len(ruta)]]
         plt.plot([ciudad_actual[0], ciudad_siguiente[0]], [ciudad_actual[1], ciudad_siguiente[1]], 'bo-')
     for idx, (x, y) in enumerate(ciudades):
-        plt.text(x, y, str(idx), fontsize=12, ha='right')
+        plt.text(x, y, str(idx), fontsize=12, ha='right', color='red')
+    plt.scatter(ciudades[ruta[0]][0], ciudades[ruta[0]][1], color='green', marker='o', s=100, label='Inicio')
+    plt.scatter(ciudades[ruta[-1]][0], ciudades[ruta[-1]][1], color='red', marker='o', s=100, label='Fin')
+    plt.legend()
     plt.title("Mapa de ciudades y ruta óptima")
     plt.savefig(filename)
     plt.close()
 
-def generar_reporte(n_ciudades, mejores_distancias, mejor_ruta, grafico_path, grafo_path, output_dir):
+def generar_reporte_md(n_ciudades, mejores_distancias, mejor_ruta, grafico_path, grafo_path, hist_path, output_dir):
     """
-    Genera un informe en PDF con los resultados de la búsqueda.
+    Genera un informe en Markdown con los resultados detallados de la búsqueda.
     """
-    pdf_filename = f"{output_dir}/reporte_{n_ciudades}.pdf"
-    c = canvas.Canvas(pdf_filename, pagesize=letter)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(100, 750, f"Informe de Búsqueda de Cuervos - {n_ciudades} ciudades")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 720, "Mejor ruta encontrada:")
-    
-    # Formateo de la ruta con saltos de línea
-    ruta_texto = " → ".join(map(str, mejor_ruta))
-    lines = [ruta_texto[i:i+80] for i in range(0, len(ruta_texto), 80)]  
-    y_pos = 700
-    for line in lines:
-        c.drawString(100, y_pos, line)
-        y_pos -= 20
-    
-    # Incluir imágenes del gráfico de evolución y el grafo de ciudades
-    c.drawImage(grafico_path, 100, y_pos - 200, width=400, height=200)
-    c.drawImage(grafo_path, 100, y_pos - 450, width=400, height=200)
-    
-    c.save()
-    print(f"📄 Reporte generado: {pdf_filename}")
+    md_filename = f"{output_dir}/reporte_{n_ciudades}.md"
+    with open(md_filename, "w") as md:
+        md.write(f"## Informe de Búsqueda de Cuervos - {n_ciudades} ciudades\n")
+        md.write(f"### Mejor ruta encontrada:\n")
+        md.write(f"{mejor_ruta}\n\n")
+        md.write(f"### Evolución de la distancia mínima por iteraciones:\n")
+        md.write(f"![Evolución]({os.path.basename(grafico_path)})\n\n")
+        md.write(f"### Mapa de ciudades con la mejor ruta encontrada:\n")
+        md.write(f"![Grafo]({os.path.basename(grafo_path)})\n\n")
+        md.write(f"### Distribución de distancias obtenidas:\n")
+        md.write(f"![Histograma]({os.path.basename(hist_path)})\n\n")
+        md.write(f"---\n\n")
+    print(f"📄 Informe generado: {md_filename}")
 
 if __name__ == "__main__":
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    root_output_dir = f"resultados/EJECUCION_{timestamp}"
+    os.makedirs(root_output_dir, exist_ok=True)
+    
+    resultados = []
     for n in [20, 50, 100]:
-        mejor_ruta, ciudades = busqueda_cuervos(n)
-        print(f"Mejor ruta encontrada para {n} ciudades: {mejor_ruta}")
+        mejor_ruta, mejores_distancias = busqueda_cuervos(n, root_output_dir)
+        resultados.append((n, mejores_distancias))
+    
+    reporte_general = f"{root_output_dir}/reporte_general.md"
+    plt.figure()
+    for n, distancias in resultados:
+        plt.plot(distancias, label=f"{n} ciudades")
+    plt.xlabel("Iteraciones")
+    plt.ylabel("Distancia mínima encontrada")
+    plt.title("Comparación de evolución de búsqueda para diferentes tamaños de ciudades")
+    plt.legend()
+    comparacion_path = f"{root_output_dir}/comparacion.png"
+    plt.savefig(comparacion_path)
+    plt.close()
+    
+    with open(reporte_general, "w") as md:
+        md.write("# Informe General - Comparación entre tamaños de ciudades\n\n")
+        md.write(f"![Comparación]({os.path.basename(comparacion_path)})\n\n")
+        for n, distancias in resultados:
+            md.write(f"## {n} Ciudades\n")
+            md.write(f"Mejor distancia encontrada: {min(distancias)}\n\n")
+            md.write(f"### Evolución de la distancia mínima:\n")
+            md.write(f"![Evolución]({n}_ciudades/grafico_{n}.png)\n\n")
+    print(f"📄 Informe comparativo generado: {reporte_general}")
